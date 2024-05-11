@@ -19,7 +19,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 MP = sys.argv[1] == 'true'
 dtype = torch.float16 if MP else torch.float32
 print(f'device: {device}, mixed precision training: {MP} ({dtype})')
-scale = 8 if MP else 1 # loss scaling
+scale = 128 if MP else 1 # loss scaling
 
 # load mixed precision training CUDA kernels
 mpt = load(name='mixed_precision_training',
@@ -27,10 +27,10 @@ mpt = load(name='mixed_precision_training',
            extra_cuda_cflags=['-O2', '-lcublas'])
 
 # define model
-batch_size = n = 4096 # n for convenience
+batch_size = n = 8192 # n for convenience
 g = torch.Generator(device=device).manual_seed(42) # for reproducibility
 n_embd = 784
-n_hidden = 4096
+n_hidden = 8192
 num_classes = 10
 
 # master weights
@@ -73,6 +73,7 @@ mem_rest = 0
 for p in parameters + intermediates:
     mem_rest += p.element_size() * p.nelement()
 print(f'act/grad memory: {mem_rest / 1e6:.2f} MB')
+print(f'total memory: {(mem_model+mem_rest) / 1e6:.2f} MB')
 
 # load mnist
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
@@ -83,20 +84,23 @@ timings = []
 for i, (x,y) in enumerate(dloader):
 
     t0 = time.time()
-
     x, y = x.to(dtype).to(device), y.to(device)
+
+    if len(y) != n: # hacky way to ignore the last batch
+        break
 
     # 1. forward pass
     x = x.view(-1, n_embd) # flatten 2d img to 1d
-    W1, b1 = m_W1.half() if MP else m_W1, m_b1.half() if MP else m_b1
+    W1, b1 = m_W1.half() if MP else m_W1, m_b1.half() if MP else m_b1 # use fp16 weight copies
     a1 = b1.repeat((n,1)) # set a1 as biases for cublas GEMM
     mpt.matmult(x, W1, a1, False, False, 1.0, 1.0) # a1 = x @ W1 + b1
     # cmp('a1', a1, x @ W1 + b1)
 
     z1 = F.relu(a1) # (n, n_hidden)
 
-    W2, b2 = m_W2.half() if MP else m_W2, m_b2.half() if MP else m_b2
+    W2, b2 = m_W2.half() if MP else m_W2, m_b2.half() if MP else m_b2 # use fp16 weight copies
     logits = b2.repeat((n,1)) # set logits as biases for GEMM
+
     mpt.matmult(z1, W2, logits, False, False, 1.0, 1.0) # logits = z1 @ W2 + b2
     # cmp('logits', logits, z1 @ W2 + b2)
 
@@ -120,7 +124,6 @@ for i, (x,y) in enumerate(dloader):
     # cmp('dW2', dW2, z1.T @ dlogits)
 
     db2 = dlogits.sum(0)
-
     da1 = dz1 * (a1 > 0).to(dtype)
     mpt.matmult(x, da1, dW1, True, False, 1.0, 0.0) # dW1 = x.T @ da1
     # cmp('dW1', dW1, x.T @ da1)
@@ -133,12 +136,8 @@ for i, (x,y) in enumerate(dloader):
     for p, grad in zip(parameters, grads):
         p.data += -lr * (grad.to(torch.float32) / scale) # cast grad to fp32 before un-scale
 
-    torch.cuda.synchronize()
     t1 = time.time()
     print(f'{i+1:2d}: loss {loss.item():.3f}, time: {(t1-t0)*1000:.3f}ms')
     timings.append(t1-t0)
 
-    if i >= 9:
-        break
-
-print(f'avg: {np.mean(timings[1:])*1000:.3f}ms')
+print(f'avg: {np.mean(timings[1:])*1000:.3f}ms') # ignore first as outlier
