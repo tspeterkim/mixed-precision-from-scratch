@@ -86,7 +86,7 @@ for i, (x,y) in enumerate(dloader):
     t0 = time.time()
     x, y = x.to(dtype).to(device), y.to(device)
 
-    if len(y) != n: # hacky way to ignore the last batch
+    if len(y) != n: # ignore the last batch
         break
 
     # 1. forward pass
@@ -116,7 +116,8 @@ for i, (x,y) in enumerate(dloader):
     #   we are doing backprop manually. The first gradient is dlogits, and the
     #   scale will propogate through all gradients.
     dlogits *= scale
-    dlogits = dlogits.to(torch.float16)
+    if MP: # no underflow occurs because we scaled
+        dlogits = dlogits.to(torch.float16)
 
     mpt.matmult(dlogits, W2, dz1, False, True, 1.0, 0.0) # dz1 = dlogits @ W2.T
     # cmp('dz1', dz1, dlogits @ W2.T)
@@ -135,7 +136,7 @@ for i, (x,y) in enumerate(dloader):
     grads = [dW1, db1, dW2, db2]
     lr = 0.01
     for p, grad in zip(parameters, grads):
-        p.data += -lr * (grad.to(torch.float32) / scale) # cast grad to fp32 before un-scale
+        p.data += -lr * (grad.to(torch.float32) / scale) # cast grad to fp32 before unscale
 
     t1 = time.time()
     print(f'{i+1:2d}: loss {loss.item():.3f}, time: {(t1-t0)*1000:.3f}ms')
