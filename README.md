@@ -2,7 +2,7 @@
 
 This is an educational repo that exposes all the details of mixed 
 precision training. I apply it to accelerate training on a 2-layer
-MLP, using a rewritten matmult call in CUDA to demonstrate clearly
+MLP, using a rewritten matmult call in CUDA (`matmult.cu`) to demonstrate clearly
 where the acceleration is coming from.
 
 To compare single precision vs. mixed precision training, run:
