@@ -42,4 +42,4 @@ total memory: 602.33 MB
 avg: 8.369ms
 ```
 
-Read my blog for more details.
+Read my [blog](https://tspeterkim.github.io/posts/mixed-precision-from-scratch) for more details.
