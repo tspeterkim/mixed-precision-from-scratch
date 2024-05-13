@@ -107,15 +107,16 @@ for i, (x,y) in enumerate(dloader):
     loss = F.cross_entropy(logits, y)
 
     # 2. manual backward pass. Kudos to Andrej, for making me a backprop ninja
-    dlogits = F.softmax(logits, 1)
+    dlogits = F.softmax(logits, 1, dtype=torch.float32) # cast logits to fp32 before softmax
     dlogits[range(n), y] -= 1
     dlogits /= n
 
     # loss scaling
     # note: we multiply dlogits, instead of loss, by scale. This is because
-    #  we are doing backprop manually. The first gradient is dlogits, and the
-    #  scale will propogate through all gradients.
+    #   we are doing backprop manually. The first gradient is dlogits, and the
+    #   scale will propogate through all gradients.
     dlogits *= scale
+    dlogits = dlogits.to(torch.float16)
 
     mpt.matmult(dlogits, W2, dz1, False, True, 1.0, 0.0) # dz1 = dlogits @ W2.T
     # cmp('dz1', dz1, dlogits @ W2.T)
