@@ -13,7 +13,7 @@ python train.py true
 ```
 
 to get something like this:
-```
+```bash
 $ python train.py false
 device: cuda, mixed precision training: False (torch.float32)
 model memory: 26.05 MB
